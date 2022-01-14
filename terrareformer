@@ -1,0 +1,63 @@
+#!/usr/bin/env ruby
+
+require 'json'
+class Terrareformer
+  def initialize(state_str)
+    @state = JSON.load(state_str)
+  end
+
+  def generate
+    locals = {}
+    @state['resources'].each do |resource|
+      locals["#{resource['type']}_#{resource['name']}"] = resource['instances'].map { |v| [v.fetch('index_key', 0),  v['attributes']] }.to_h
+
+      puts <<~EOT
+      resource "#{resource['type']}" "#{resource['name']}" {
+        for_each = local.#{resource['type']}_#{resource['name']}
+
+        #{
+          locals["#{resource['type']}_#{resource['name']}"][0].keys.map do |k|
+            "#{k} = each.value[\"#{k}\"]"
+          end.join("\n  ")
+        }
+      }
+
+      EOT
+    end
+    puts <<~EOT
+
+    locals #{generate_hcl(locals)}
+    EOT
+  end
+
+  def generate_hcl(var, indent=2)
+    case var
+    when Hash
+      hcl = "{\n"
+      var.each do |k,v|
+        hcl += " " * indent + "#{k} = " + generate_hcl(v, indent+2) + "\n"
+      end
+      hcl += " " * (indent-2) + "}"
+    when Array
+      hcl = "[\n"
+      var.each do |v|
+        hcl += " " * indent + generate_hcl(v, indent+2) + ",\n"
+      end
+      hcl += " " * (indent-2) + "]"
+    when String
+      if var.include?("\n")
+        hcl = "<<EOT\n#{var}\nEOT\n"
+      else
+        hcl = "\"#{var}\""
+      end
+    when NilClass
+      hcl = "null"
+    else
+      hcl = var.to_s
+    end
+    return hcl
+  end
+end
+
+t = Terrareformer.new(ARGF)
+t.generate
